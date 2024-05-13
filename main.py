@@ -1,133 +1,183 @@
 import pygame
 import random
-
-# Constants
-GAME_SIZE = 3
-TILE_SIZE = 100
-WINDOW_SIZE = GAME_SIZE * TILE_SIZE
-
-# Colors
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-RED = (255, 0, 0)
-
-# Initialize Pygame
-pygame.init()
-window = pygame.display.set_mode((WINDOW_SIZE, WINDOW_SIZE))
-pygame.display.set_caption("Sliding Puzzle")
+import time
+from sprite import *
+from settings import *
 
 
-# Game Class
 class Game:
     def __init__(self):
-        self.tiles = []
-        self.tiles_grid = []
-        self.empty_tile = None
-        self.running = True
+        pygame.init()
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption(title)
+        self.clock = pygame.time.Clock()
+        self.shuffle_time = 0
+        self.start_shuffle = False
+        self.previous_choice = ""
+        self.start_game = False
+        self.start_timer = False
+        self.elapsed_time = 0
+        self.high_score = float(self.get_high_scores()[0])
 
-    def generate_tiles(self):
-        numbers = list(range(1, GAME_SIZE ** 2))
-        random.shuffle(numbers)
+    def get_high_scores(self):
+        with open("high_score.txt", "r") as file:
+            scores = file.read().splitlines()
+        return scores
 
-        for row in range(GAME_SIZE):
-            tile_row = []
-            grid_row = []
-            for col in range(GAME_SIZE):
-                if row == GAME_SIZE - 1 and col == GAME_SIZE - 1:
-                    tile_row.append(None)
-                    grid_row.append(0)
-                    self.empty_tile = (row, col)
-                else:
-                    number = numbers.pop()
-                    tile_row.append(number)
-                    grid_row.append(number)
-            self.tiles.append(tile_row)
-            self.tiles_grid.append(grid_row)
+    def save_score(self):
+        with open("high_score.txt", "w") as file:
+            file.write(str("%.3f\n" % self.high_score))
+
+    def create_game(self):
+        grid = [[x + y * GAME_SIZE for x in range(1, GAME_SIZE + 1)] for y in range(GAME_SIZE)]
+        grid[-1][-1] = 0
+        return grid
+
+    def shuffle(self):
+        possible_moves = []
+        for row, tiles in enumerate(self.tiles):
+            for col, tile in enumerate(tiles):
+                if tile.text == "empty":
+                    if tile.right():
+                        possible_moves.append("right")
+                    if tile.left():
+                        possible_moves.append("left")
+                    if tile.up():
+                        possible_moves.append("up")
+                    if tile.down():
+                        possible_moves.append("down")
+                    break
+            if len(possible_moves) > 0:
+                break
+
+        if self.previous_choice == "right":
+            possible_moves.remove("left") if "left" in possible_moves else possible_moves
+        elif self.previous_choice == "left":
+            possible_moves.remove("right") if "right" in possible_moves else possible_moves
+        elif self.previous_choice == "up":
+            possible_moves.remove("down") if "down" in possible_moves else possible_moves
+        elif self.previous_choice == "down":
+            possible_moves.remove("up") if "up" in possible_moves else possible_moves
+
+        choice = random.choice(possible_moves)
+        self.previous_choice = choice
+        if choice == "right":
+            self.tiles_grid[row][col], self.tiles_grid[row][col + 1] = self.tiles_grid[row][col + 1], \
+                                                                       self.tiles_grid[row][col]
+        elif choice == "left":
+            self.tiles_grid[row][col], self.tiles_grid[row][col - 1] = self.tiles_grid[row][col - 1], \
+                                                                       self.tiles_grid[row][col]
+        elif choice == "up":
+            self.tiles_grid[row][col], self.tiles_grid[row - 1][col] = self.tiles_grid[row - 1][col], \
+                                                                       self.tiles_grid[row][col]
+        elif choice == "down":
+            self.tiles_grid[row][col], self.tiles_grid[row + 1][col] = self.tiles_grid[row + 1][col], \
+                                                                       self.tiles_grid[row][col]
 
     def draw_tiles(self):
-        window.fill(WHITE)
-        for row in range(GAME_SIZE):
-            for col in range(GAME_SIZE):
-                if self.tiles[row][col]:
-                    pygame.draw.rect(window, BLACK, (col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE))
-                    font = pygame.font.SysFont(None, 48)
-                    text = font.render(str(self.tiles[row][col]), True, WHITE)
-                    text_rect = text.get_rect(center=(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2))
-                    window.blit(text, text_rect)
+        self.tiles = []
+        for row, x in enumerate(self.tiles_grid):
+            self.tiles.append([])
+            for col, tile in enumerate(x):
+                if tile != 0:
+                    self.tiles[row].append(Tile(self, col, row, str(tile)))
+                else:
+                    self.tiles[row].append(Tile(self, col, row, "empty"))
 
-    def move_tile(self, row, col):
-        if (row, col) == self.empty_tile:
-            return
+    def new(self):
+        self.all_sprites = pygame.sprite.Group()
+        self.tiles_grid = self.create_game()
+        self.tiles_grid_completed = self.create_game()
+        self.elapsed_time = 0
+        self.start_timer = False
+        self.start_game = False
+        self.buttons_list = []
+        self.buttons_list.append(Button(500, 100, 200, 50, "Shuffle", WHITE, BLACK))
+        self.buttons_list.append(Button(500, 170, 200, 50, "Reset", WHITE, BLACK))
+        self.draw_tiles()
 
-        if row == self.empty_tile[0]:
-            direction = -1 if col < self.empty_tile[1] else 1
-            for c in range(col, self.empty_tile[1], direction):
-                self.tiles[row][c], self.tiles[row][c + direction] = self.tiles[row][c + direction], self.tiles[row][c]
-        elif col == self.empty_tile[1]:
-            direction = -1 if row < self.empty_tile[0] else 1
-            for r in range(row, self.empty_tile[0], direction):
-                self.tiles[r][col], self.tiles[r + direction][col] = self.tiles[r + direction][col], self.tiles[r][col]
-        else:
-            return
+    def run(self):
+        self.playing = True
+        while self.playing:
+            self.clock.tick(FPS)
+            self.events()
+            self.update()
+            self.draw()
 
-        self.empty_tile = (row, col)
+    def update(self):
+        if self.start_game:
+            if self.tiles_grid == self.tiles_grid_completed:
+                self.start_game = False
+                if self.high_score > 0:
+                    self.high_score = self.elapsed_time if self.elapsed_time < self.high_score else self.high_score
+                else:
+                    self.high_score = self.elapsed_time
+                self.save_score()
 
-    def is_solved(self):
-        for row in range(GAME_SIZE):
-            for col in range(GAME_SIZE):
-                if self.tiles[row][col] != row * GAME_SIZE + col + 1:
-                    return False
-        return True
+            if self.start_timer:
+                self.timer = time.time()
+                self.start_timer = False
+            self.elapsed_time = time.time() - self.timer
 
-    def handle_click(self, pos):
-        col = pos[0] // TILE_SIZE
-        row = pos[1] // TILE_SIZE
+        if self.start_shuffle:
+            self.shuffle()
+            self.draw_tiles()
+            self.shuffle_time += 1
+            if self.shuffle_time > 120:
+                self.start_shuffle = False
+                self.start_game = True
+                self.start_timer = True
 
-        if (row, col) == self.empty_tile:
-            return
+        self.all_sprites.update()
 
-        if row == self.empty_tile[0] and abs(col - self.empty_tile[1]) == 1:
-            self.move_tile(row, col)
-        elif col == self.empty_tile[1] and abs(row - self.empty_tile[0]) == 1:
-            self.move_tile(row, col)
+    def draw_grid(self):
+        for row in range(-1, GAME_SIZE * TILESIZE, TILESIZE):
+            pygame.draw.line(self.screen, LIGHTGREY, (row, 0), (row, GAME_SIZE * TILESIZE))
+        for col in range(-1, GAME_SIZE * TILESIZE, TILESIZE):
+            pygame.draw.line(self.screen, LIGHTGREY, (0, col), (GAME_SIZE * TILESIZE, col))
 
-    def solve(self):
-        # A* Search Algorithm
-        def manhattan_distance(start, end):
-            return abs(start[0] - end[0]) + abs(start[1] - end[1])
+    def draw(self):
+        self.screen.fill(BGCOLOUR)
+        self.all_sprites.draw(self.screen)
+        self.draw_grid()
+        for button in self.buttons_list:
+            button.draw(self.screen)
+        UIElement(550, 35, "%.3f" % self.elapsed_time).draw(self.screen)
+        UIElement(430, 300, "High Score - %.3f" % (self.high_score if self.high_score > 0 else 0)).draw(self.screen)
+        pygame.display.flip()
 
-        def find_empty_tile(grid):
-            for row in range(GAME_SIZE):
-                for col in range(GAME_SIZE):
-                    if grid[row][col] == 0:
-                        return (row, col)
+    def events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit(0)
 
-        class Node:
-            def __init__(self, grid, parent, move, g, h):
-                self.grid = grid
-                self.parent = parent
-                self.move = move
-                self.g = g
-                self.h = h
-                self.f = g + h
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                for row, tiles in enumerate(self.tiles):
+                    for col, tile in enumerate(tiles):
+                        if tile.click(mouse_x, mouse_y):
+                            if tile.right() and self.tiles_grid[row][col + 1] == 0:
+                                self.tiles_grid[row][col], self.tiles_grid[row][col + 1] = self.tiles_grid[row][col + 1], self.tiles_grid[row][col]
 
-            def __eq__(self, other):
-                return self.grid == other.grid
+                            if tile.left() and self.tiles_grid[row][col - 1] == 0:
+                                self.tiles_grid[row][col], self.tiles_grid[row][col - 1] = self.tiles_grid[row][col - 1], self.tiles_grid[row][col]
 
-        start_node = Node(self.tiles_grid, None, None, 0, 0)
-        open_list = [start_node]
-        closed_list = []
+                            if tile.up() and self.tiles_grid[row - 1][col] == 0:
+                                self.tiles_grid[row][col], self.tiles_grid[row - 1][col] = self.tiles_grid[row - 1][col], self.tiles_grid[row][col]
 
-        while open_list:
-            current_node = open_list[0]
-            current_index = 0
+                            if tile.down() and self.tiles_grid[row + 1][col] == 0:
+                                self.tiles_grid[row][col], self.tiles_grid[row + 1][col] = self.tiles_grid[row + 1][col], self.tiles_grid[row][col]
 
-            for index, node in enumerate(open_list):
-                if node.f < current_node.f:
-                    current_node = node
-                    current_index = index
+                            self.draw_tiles()
 
-            open_list.pop(current_index)
+                for button in self.buttons_list:
+                    if button.click(mouse_x, mouse_y):
+                        if button.text == "Shuffle":
+                            self.shuffle_time = 0
+                            self.start_shuffle = True
+                        if button.text == "Reset":
+                            self.new()
 
 
 game = Game()
